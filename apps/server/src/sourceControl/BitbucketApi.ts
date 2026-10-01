@@ -41,7 +41,18 @@ const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 /** Bitbucket redirects a diff once; this leaves room without following a chain forever. */
 const MAX_REDIRECTS = 3;
 
+/**
+ * Whether a Cloud API root was set on purpose. Only then is a Bitbucket remote on a host other
+ * than bitbucket.org sent to it; by default that host is Server or Data Center, which this
+ * client cannot speak to.
+ */
+export const BitbucketApiBaseUrlConfigured = Config.String("T3CODE_BITBUCKET_API_BASE_URL").pipe(
+  Config.option,
+  Config.map(Option.isSome),
+);
+
 const BitbucketApiEnvConfig = Config.all({
+  baseUrlConfigured: BitbucketApiBaseUrlConfigured,
   baseUrl: Config.String("T3CODE_BITBUCKET_API_BASE_URL").pipe(
     Config.withDefault(DEFAULT_API_BASE_URL),
   ),
@@ -663,6 +674,15 @@ export const make = Effect.gen(function* () {
 
   const apiUrl = (path: string) => `${config.baseUrl.replace(/\/+$/u, "")}${path}`;
 
+  /** This API is Bitbucket Cloud's; a Server or Data Center remote is not one it can address. */
+  const isAddressableRemote = (remoteUrl: string) => {
+    const provider = detectSourceControlProviderFromRemoteUrl(remoteUrl);
+    return (
+      provider?.kind === "bitbucket" &&
+      (config.baseUrlConfigured || provider.baseUrl === "https://bitbucket.org")
+    );
+  };
+
   // Read on every request so credentials saved in settings apply without a restart.
   const currentCredential = serverSettings.getSettings.pipe(
     Effect.map((settings) => resolveCredential(settings.bitbucket, config)),
@@ -732,7 +752,7 @@ export const make = Effect.gen(function* () {
     if (fromRepository) return fromRepository;
 
     const fromContext =
-      input.context?.provider.kind === "bitbucket"
+      input.context?.provider.kind === "bitbucket" && isAddressableRemote(input.context.remoteUrl)
         ? parseBitbucketRemoteUrl(input.context.remoteUrl)
         : null;
     if (fromContext) return fromContext;
@@ -757,7 +777,7 @@ export const make = Effect.gen(function* () {
     );
 
     for (const remote of remotes.remotes) {
-      if (detectSourceControlProviderFromRemoteUrl(remote.url)?.kind !== "bitbucket") continue;
+      if (!isAddressableRemote(remote.url)) continue;
       const parsed = parseBitbucketRemoteUrl(remote.url);
       if (parsed) return parsed;
     }
