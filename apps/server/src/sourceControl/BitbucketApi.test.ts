@@ -750,6 +750,39 @@ it.effect("never asks Bitbucket Cloud about a self-hosted Bitbucket remote", () 
   }).pipe(Effect.provide(layer));
 });
 
+it.effect(
+  "does not swap a named self-hosted remote for a Cloud remote in the same checkout",
+  () => {
+    const { execute, layer } = makeLayer({
+      response: () => Response.json({ values: [] }),
+      env: { T3CODE_BITBUCKET_EMAIL: "user@example.com", T3CODE_BITBUCKET_API_TOKEN: "token" },
+    });
+
+    return Effect.gen(function* () {
+      const bitbucket = yield* BitbucketApi.BitbucketApi;
+      const error = yield* bitbucket
+        .listPullRequests({
+          cwd: "/repo",
+          context: {
+            provider: {
+              kind: "bitbucket",
+              name: "Bitbucket Self-Hosted",
+              baseUrl: "https://bitbucket.example.com",
+            },
+            remoteName: "self-hosted",
+            remoteUrl: "https://bitbucket.example.com/scm/proj/repo.git",
+          },
+          headSelector: "feature/x",
+          state: "open",
+        })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error._tag, "BitbucketRepositoryRemoteNotFoundError");
+      assert.strictEqual(execute.mock.calls.length, 0);
+    }).pipe(Effect.provide(layer));
+  },
+);
+
 it.effect("sends a self-hosted Bitbucket remote to a Cloud root that was set on purpose", () => {
   const remoteUrl = "https://bitbucket.example.com/scm/proj/repo.git";
   const { execute, layer } = makeLayer({

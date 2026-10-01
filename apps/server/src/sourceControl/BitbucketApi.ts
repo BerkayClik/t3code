@@ -751,11 +751,15 @@ export const make = Effect.gen(function* () {
       input.repository !== undefined ? parseBitbucketRepositorySlug(input.repository) : null;
     if (fromRepository) return fromRepository;
 
-    const fromContext =
-      input.context?.provider.kind === "bitbucket" && isAddressableRemote(input.context.remoteUrl)
-        ? parseBitbucketRemoteUrl(input.context.remoteUrl)
-        : null;
-    if (fromContext) return fromContext;
+    if (input.context?.provider.kind === "bitbucket") {
+      // A remote that was named is the repository asked about; another remote in the checkout
+      // is not a stand-in for it.
+      if (!isAddressableRemote(input.context.remoteUrl)) {
+        return yield* new BitbucketRepositoryRemoteNotFoundError({ cwd: input.cwd });
+      }
+      const fromContext = parseBitbucketRemoteUrl(input.context.remoteUrl);
+      if (fromContext) return fromContext;
+    }
 
     const handle = yield* vcsRegistry.resolve({ cwd: input.cwd }).pipe(
       Effect.mapError(
